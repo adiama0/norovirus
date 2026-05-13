@@ -4,7 +4,7 @@ set -euo pipefail
 
 THREADS="${THREADS:-8}"
 
-# uncomment to rerun full workflow
+# # uncomment to rerun full workflow
 rm -rf tmp barcodeforge_workdir
 rm -f data/sequences.fasta data/sequences.fasta.zst
 
@@ -34,57 +34,78 @@ echo "Creating VP1 reference..."
 python reference_parsing.py \
   --reference data/reference.gb \
   --gene VP1 \
-  --output tmp/norovirus_reference_all_VP1.gb
+  --output tmp/norovirus_reference_VP1.gb
 
 # Align sequences with augur align, matching the Nextstrain strategy
 echo "Aligning sequences..."
 augur align \
   --sequences tmp/downsample_seqs.fasta \
-  --reference-sequence tmp/norovirus_reference_all_VP1.gb \
+  --reference-sequence tmp/norovirus_reference_VP1.gb \
   --output tmp/alignment.fasta \
   --fill-gaps \
   --remove-reference \
   --nthreads "${THREADS}"
 
-# Build a tree from the same alignment
+# Create Sapovirus VP1 sequence from GenBank file
+echo "Creating outgroup sequence..."
+python reference_parsing.py \
+  --reference data/sapovirus_outgroup.gb \
+  --gene VP1 \
+  --output tmp/sapovirus_outgroup_VP1.gb
+
+python extract_fasta.py \
+  tmp/sapovirus_outgroup_VP1.gb \
+  tmp/sapovirus_outgroup_VP1.fasta
+
+# Add one sapovirus VP1 outgroup to the existing ingroup alignment
+echo "Adding sapovirus outgroup to alignment..."
+augur align \
+  --existing-alignment tmp/alignment.fasta \
+  --sequences tmp/sapovirus_outgroup_VP1.fasta \
+  --output tmp/alignment_with_outgroup.fasta \
+  --fill-gaps \
+  --nthreads "${THREADS}"
+
+# Build a tree from the alignment
 echo "Building tree..."
 augur tree \
-  --alignment tmp/alignment.fasta \
-  --output tmp/tree_raw.nwk \
+  --alignment tmp/alignment_with_outgroup.fasta \
+  --output tmp/tree_raw_with_outgroup.nwk \
   --nthreads "${THREADS}"
 
 echo "Rooting/refining tree..."
 augur refine \
-  --tree tmp/tree_raw.nwk \
-  --alignment tmp/alignment.fasta \
-  --output-tree tmp/tree_refined.nwk \
-  --output-node-data tmp/tree_refined.node_data.json \
-  --root mid_point
+  --tree tmp/tree_raw_with_outgroup.nwk \
+  --alignment tmp/alignment_with_outgroup.fasta \
+  --output-tree tmp/tree_refined_rooted.nwk \
+  --output-node-data tmp/tree_refined_rooted.node_data.json \
+  --root NC_075724 \
+  --remove-outgroup \
+  --branch-length-inference joint \
+  --keep-polytomies
 
 echo "Inferring ancestral sequences..."
 augur ancestral \
-  --tree tmp/tree_refined.nwk \
+  --tree tmp/tree_refined_rooted.nwk \
   --alignment tmp/alignment.fasta \
   --output-node-data tmp/ancestral.json \
   --output-sequences tmp/ancestral_sequences.fasta \
-  --inference joint
+  --inference marginal
 
 python extract_root_ancestral.py \
-  tmp/tree_refined.nwk \
+  tmp/tree_refined_rooted.nwk \
   tmp/ancestral_sequences.fasta \
   tmp/norovirus_all_VP1_ancestral.fasta
 
 # Create lineage map for BarcodeForge
 awk -F'\t' 'NR>1{print $2"\t"$1}' tmp/metadata_filtered.tsv > tmp/lineage_map.tsv
 
-# python extract_fasta.py tmp/norovirus_reference_all_VP1.gb tmp/norovirus_reference_all_VP1.fasta
-
 # Run BarcodeForge 
 echo "Running Barcodeforge..."
 barcodeforge barcode \
   tmp/norovirus_all_VP1_ancestral.fasta \
   tmp/alignment.fasta \
-  tmp/tree_refined.nwk \
+  tmp/tree_refined_rooted.nwk \
   tmp/lineage_map.tsv \
   --tree-format newick \
   --prefix "NV"
