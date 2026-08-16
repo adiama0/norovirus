@@ -1,0 +1,13 @@
+# Keep previous/experimental work locally but never upload it
+unused/*
+
+# Keep local sequencing working directory out of GitHub
+data/sequences/*
+!data/sequences/.gitkeep
+
+# macOS
+.DS_Store
+
+# Python cache files
+__pycache__/
+*.py[cod]
