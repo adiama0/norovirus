@@ -5,6 +5,8 @@ tmp/*
 # Keep local sequencing working directory out of GitHub
 data/sequences/*
 !data/sequences/.gitkeep
+data/competitive_mapping_results/*
+!data/competitive_mapping_results/.gitkeep
 
 # macOS
 .DS_Store
