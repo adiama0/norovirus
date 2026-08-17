@@ -12,13 +12,12 @@ data/sequences/*
 data/competitive_mapping_results/*
 !data/competitive_mapping_results/.gitkeep
 
-# Ignore BWA / samtools reference indexes
-data/references/reference_multi.fasta.0123
-data/references/reference_multi.fasta.amb
-data/references/reference_multi.fasta.ann
-data/references/reference_multi.fasta.bwt.2bit.64
-data/references/reference_multi.fasta.fai
-data/references/reference_multi.fasta.pac
+# Ignore reference indexes and individual fastas
+data/references/*
+# allow reference fasta and medoid tsv
+!data/references/medoid.tsv
+!data/references/reference_multi.fasta
+
 
 # macOS
 .DS_Store
