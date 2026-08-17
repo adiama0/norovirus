@@ -1,12 +1,24 @@
-# Keep previous/experimental work locally but never upload it
+# Ignore old files
 unused/*
+
+# Ignore temporary results
 tmp/*
 
-# Keep local sequencing working directory out of GitHub
+# Ignore input sequence files
 data/sequences/*
 !data/sequences/.gitkeep
+
+# Ignore competitive mapping output
 data/competitive_mapping_results/*
 !data/competitive_mapping_results/.gitkeep
+
+# Ignore BWA / samtools reference indexes
+data/references/reference_multi.fasta.0123
+data/references/reference_multi.fasta.amb
+data/references/reference_multi.fasta.ann
+data/references/reference_multi.fasta.bwt.2bit.64
+data/references/reference_multi.fasta.fai
+data/references/reference_multi.fasta.pac
 
 # macOS
 .DS_Store
