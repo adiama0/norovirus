@@ -10,20 +10,15 @@ def find_tree_medoid(tree, selected_names, candidate_names):
 
     selected_names = set(str(name) for name in selected_names)
     candidate_names = set(str(name) for name in candidate_names)
-
     root = tree.root
     edge_length = {}
     order = []
-
     stack = [root]
 
     while stack:
-
         node = stack.pop()
         order.append(node)
-
         for child in node.clades:
-
             edge_length[child] = child.branch_length or 0.0
             stack.append(child)
 
@@ -31,21 +26,15 @@ def find_tree_medoid(tree, selected_names, candidate_names):
     distance_below = {}
 
     for node in reversed(order):
-
         if node.is_terminal():
-
             selected_count[node] = int(node.name in selected_names)
             distance_below[node] = 0.0
-
+        
         else:
-
             selected_count[node] = 0
             distance_below[node] = 0.0
-
             for child in node.clades:
-
                 selected_count[node] += selected_count[child]
-
                 distance_below[node] += (
                     distance_below[child]
                     + selected_count[child] * edge_length[child]
@@ -58,9 +47,7 @@ def find_tree_medoid(tree, selected_names, candidate_names):
     }
 
     for node in order:
-
         for child in node.clades:
-
             total_distance[child] = (
                 total_distance[node]
                 + (
@@ -83,7 +70,6 @@ def find_tree_medoid(tree, selected_names, candidate_names):
     ]
 
     if not candidates:
-
         raise ValueError(
             "No full-genome candidates matched terminal tips in the tree."
         )
@@ -97,7 +83,6 @@ def find_tree_medoid(tree, selected_names, candidate_names):
     )
 
     if number_selected > 1:
-
         mean_distance = (
             total_distance[medoid]
             / (number_selected - 1)
@@ -116,22 +101,13 @@ def find_tree_medoid(tree, selected_names, candidate_names):
 
 def main():
 
-    parser = argparse.ArgumentParser(
-        description="Find one full-genome VP1-tree medoid for each norovirus type."
-    )
-
+    parser = argparse.ArgumentParser(description="Find one full-genome VP1-tree medoid for each norovirus type.")
     parser.add_argument("--tree", required=True)
     parser.add_argument("--metadata", required=True)
     parser.add_argument("--sequences", required=True)
     parser.add_argument("--min-genome-length", type=int, default=7000)
     parser.add_argument("--group-dir", required=True)
-
-    parser.add_argument(
-        "--groups",
-        nargs="+",
-        required=True
-    )
-
+    parser.add_argument("--groups", nargs="+", required=True)
     parser.add_argument("--output", required=True)
 
     args = parser.parse_args()
@@ -150,7 +126,6 @@ def main():
     }
 
     if not required_columns.issubset(all_metadata.columns):
-
         raise ValueError(
             "Filtered metadata must contain name and VP1_type columns."
         )
@@ -166,7 +141,6 @@ def main():
     results = []
 
     for group in args.groups:
-
         group_metadata_path = (
             Path(args.group_dir)
             / f"metadata_group_{group}.tsv"
@@ -192,7 +166,6 @@ def main():
         ]
 
         if not full_genome_names:
-
             raise ValueError(
                 f"No sequences >= {args.min_genome_length} nt "
                 f"were found for {group}."
@@ -211,11 +184,9 @@ def main():
         ]
 
         if medoid_row.empty:
-
             vp1_type = "UNKNOWN"
 
         else:
-
             vp1_type = medoid_row.iloc[0]["VP1_type"]
 
         results.append(
@@ -238,9 +209,7 @@ def main():
         index=False
     )
 
-    print()
     print(results.to_string(index=False))
-    print()
 
 
 if __name__ == "__main__":
