@@ -5,18 +5,6 @@ import argparse
 from Bio import SeqIO
 from Bio.SeqRecord import SeqRecord
 
-
-# GenBank records that contain the nucleotide sequence but do not
-# contain a usable VP1 annotation can be handled here.
-#
-# Coordinates are GenBank-style:
-#   1-based
-#   inclusive start and end
-MANUAL_VP1_COORDINATES = {
-    "LC122908": (5067, 6710),
-}
-
-
 SEARCH_TERMS = (
     "vp1",
     "orf2",
@@ -25,7 +13,18 @@ SEARCH_TERMS = (
 )
 
 
+STOP_CODONS = {
+    "TAA",
+    "TAG",
+    "TGA",
+}
+
+
 def feature_text(feature):
+    """
+    Combine useful GenBank feature qualifiers into one lowercase string.
+    """
+
     values = []
 
     for key in (
@@ -44,6 +43,10 @@ def feature_text(feature):
 
 
 def find_vp1_feature(record):
+    """
+    Search annotated CDS features for VP1 / ORF2 / capsid terms.
+    """
+
     candidates = []
 
     for feature in record.features:
@@ -86,7 +89,55 @@ def find_vp1_feature(record):
     return candidates[0]
 
 
+def find_complete_orfs(sequence, min_nt=1500, max_nt=1800):
+    """
+    Find maximal complete forward-strand ORFs in the expected VP1 size range.
+    """
+
+    sequence = str(sequence).upper()
+
+    candidates = []
+
+    for frame in range(3):
+
+        start = None
+
+        for i in range(frame, len(sequence) - 2, 3):
+
+            codon = sequence[i:i + 3]
+
+            if start is None:
+
+                if codon == "ATG":
+                    start = i
+
+            else:
+
+                if codon in STOP_CODONS:
+
+                    end = i + 3
+                    length = end - start
+
+                    if min_nt <= length <= max_nt:
+
+                        candidates.append(
+                            {
+                                "start_python": start,
+                                "end_python": end,
+                                "start_genbank": start + 1,
+                                "end_genbank": end,
+                                "length": length,
+                                "frame": frame,
+                            }
+                        )
+
+                    start = None
+
+    return candidates
+
+
 def main():
+
     parser = argparse.ArgumentParser(
         description="Extract VP1 from a medoid GenBank record."
     )
@@ -106,6 +157,8 @@ def main():
 
     vp1_feature = find_vp1_feature(record)
 
+    # Option 1: Use an actual GenBank VP1/ORF2 CDS annotation
+
     if vp1_feature is not None:
 
         vp1_sequence = vp1_feature.extract(
@@ -117,44 +170,97 @@ def main():
             f"{vp1_feature.location}"
         )
 
-    elif args.accession in MANUAL_VP1_COORDINATES:
-
-        start, end = MANUAL_VP1_COORDINATES[
-            args.accession
-        ]
-
-        # Python is 0-based and end-exclusive.
-        # GenBank 5067..6710 becomes [5066:6710].
-        vp1_sequence = record.seq[
-            start - 1:end
-        ]
-
-        print(
-            f"No usable VP1 annotation found for "
-            f"{args.accession}."
-        )
-
-        print(
-            f"Using manual VP1 coordinates "
-            f"{start}..{end}."
-        )
-
+    # Option 2: If there is no annotation or manual entry, search for a complete forward ORF with the expected VP1 length.
     else:
 
-        raise ValueError(
-            f"Could not identify VP1 in {args.genbank}. "
-            f"If this GenBank record is unannotated, add verified "
-            f"coordinates for {args.accession} to "
-            f"MANUAL_VP1_COORDINATES."
+        candidates = find_complete_orfs(
+            record.seq,
+            min_nt=1500,
+            max_nt=1800,
         )
 
+        if len(candidates) == 1:
+
+            candidate = candidates[0]
+
+            vp1_sequence = record.seq[
+                candidate["start_python"]:
+                candidate["end_python"]
+            ]
+
+            print(
+                f"No usable VP1 CDS annotation found for "
+                f"{args.accession}."
+            )
+
+            print(
+                "Automatically detected one complete "
+                "VP1-sized ORF."
+            )
+
+            print(
+                f"Using inferred coordinates: "
+                f"{candidate['start_genbank']}.."
+                f"{candidate['end_genbank']}"
+            )
+
+            print(
+                f"Reading frame: {candidate['frame']}"
+            )
+
+        elif len(candidates) == 0:
+
+            raise ValueError(
+                f"Could not identify VP1 in {args.genbank}. "
+                f"No annotated VP1 CDS, no manually verified "
+                f"coordinates, and no unique complete 1500-1800 nt "
+                f"forward ORF was found."
+            )
+
+        else:
+
+            candidate_text = ", ".join(
+                f"{candidate['start_genbank']}.."
+                f"{candidate['end_genbank']} "
+                f"({candidate['length']} nt)"
+                for candidate in candidates
+            )
+
+            raise ValueError(
+                f"Could not identify VP1 unambiguously in "
+                f"{args.genbank}. Multiple VP1-sized complete ORFs "
+                f"were found: {candidate_text}. "
+                f"Inspect the record and add the verified VP1 "
+                f"coordinates to MANUAL_VP1_COORDINATES."
+            )
+
+
+    # Checks:
+    #Lengtj 
     if not 1500 <= len(vp1_sequence) <= 1800:
+
         raise ValueError(
             f"VP1 length for {args.accession} is "
             f"{len(vp1_sequence)} nt, outside the expected "
             f"1500-1800 nt range."
         )
 
+    # Error in reading codons
+    if len(vp1_sequence) % 3 != 0:
+        raise ValueError(
+            f"VP1 length for {args.accession} is "
+            f"{len(vp1_sequence)} nt and is not divisible by 3."
+        )
+
+    protein = vp1_sequence.translate()
+    internal_stops = protein[:-1].count("*")
+
+    print(f"VP1 length: {len(vp1_sequence)} nt")
+
+    print(f"Translation length: {len(protein)} aa "
+        f"(including terminal stop if present)")
+
+    # Write the FASTA 
     output_record = SeqRecord(
         vp1_sequence,
         id=(
@@ -171,9 +277,9 @@ def main():
         "fasta"
     )
 
-    print(f"VP1 length: {len(vp1_sequence)} nt")
-    print(f"Wrote: {args.output}")
-
+    print(
+        f"Wrote: {args.output}"
+    )
 
 if __name__ == "__main__":
     main()
