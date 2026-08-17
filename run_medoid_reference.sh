@@ -4,12 +4,6 @@ set -euo pipefail
 
 THREADS="${THREADS:-8}"
 
-# Group A: GII.4, GII.20
-# Group B: GII.3, GII.7, GII.8, GII.14
-# Group C: GII.6, GII.11, GII.18
-# Group D: GII.1, GII.2, GII.5, GII.10, GII.12, GII.16, GII.22, GII.23, GII.24, GII.25, GII.26, GII.27
-# Group E: GII.13, GII.17, GII.21
-
 # Uncomment for full run
 rm -rf tmp
 rm -rf data/references
@@ -59,145 +53,141 @@ awk -F'\t' '
 ' tmp/metadata.tsv \
   > tmp/metadata_filtered.tsv
 
+echo "Finding individual GII VP1 types..."
+GII_TYPES=()
 
-# Split metadata into 5 groups
-
-echo "Creating group-specific metadata files..."
-
-
-# Group A:
-
-awk -F'\t' '
-  NR == 1 ||
-  $2 ~ /^GII\.(4|20)$/
-' tmp/metadata_filtered.tsv \
-  > tmp/metadata_group_A.tsv
-
-
-# Group B:
-
-awk -F'\t' '
-  NR == 1 ||
-  $2 ~ /^GII\.(3|7|8|14)$/
-' tmp/metadata_filtered.tsv \
-  > tmp/metadata_group_B.tsv
-
-
-# Group C:
-awk -F'\t' '
-  NR == 1 ||
-  $2 ~ /^GII\.(6|11|18)$/
-' tmp/metadata_filtered.tsv \
-  > tmp/metadata_group_C.tsv
-
-
-# Group D:
-awk -F'\t' '
-  NR == 1 ||
-  $2 ~ /^GII\.(1|2|5|10|12|16|22|23|24|25|26|27)$/
-' tmp/metadata_filtered.tsv \
-  > tmp/metadata_group_D.tsv
-
-
-# Group E:
-
-awk -F'\t' '
-  NR == 1 ||
-  $2 ~ /^GII\.(13|17|21)$/
-' tmp/metadata_filtered.tsv \
-  > tmp/metadata_group_E.tsv
-
-
-# Create one FASTA file for every group
-
-echo "Creating group-specific FASTA files..."
-
-for group in A B C D E
+while IFS= read -r vp1_type
 do
+  GII_TYPES+=("${vp1_type}")
+done < <(
+  awk -F'\t' '
+    NR > 1 {
+      print $2
+    }
+  ' tmp/metadata_filtered.tsv \
+    | sort -t. -k2,2n -u
+)
+
+
+if [[ "${#GII_TYPES[@]}" -eq 0 ]]
+then
+  echo "ERROR: No GII VP1 types were found." >&2
+  exit 1
+fi
+
+# Create one FASTA file for every type
+echo "Creating FASTA files..."
+
+TYPE_LABELS=()
+
+for vp1_type in "${GII_TYPES[@]}"
+do
+
+  type="${vp1_type//./_}"
+
+  TYPE_LABELS+=("${type}")
+
+
+  awk -F'\t' \
+    -v type="${vp1_type}" '
+      NR == 1 || $2 == type {
+        print
+      }
+    ' tmp/metadata_filtered.tsv \
+    > "tmp/metadata_group_${type}.tsv"
+
 
   python scripts/downsample_seqs.py \
     tmp/nextstrain_sequences.fasta \
-    "tmp/metadata_group_${group}.tsv" \
-    "tmp/sequences_group_${group}.fasta"
+    "tmp/metadata_group_${type}.tsv" \
+    "tmp/sequences_${type}.fasta"
 
 done
 
 
 # Calculate one VP1-tree medoid per group
-
 echo "Finding VP1-tree medoids..."
 
 python scripts/find_tree_medoids.py \
   --tree tmp/VP1_tree.nwk \
   --metadata tmp/metadata_filtered.tsv \
+  --sequences tmp/nextstrain_sequences.fasta \
+  --min-genome-length 7000 \
   --group-dir tmp \
-  --groups A B C D E \
+  --groups "${TYPE_LABELS[@]}" \
   --output data/references/medoids.tsv
 
-
 # Download each medoid and extract VP1
-
 echo "Retrieving and extracting medoid VP1 sequences..."
 
 > data/references/reference_multi.fasta
-
 
 while IFS=$'\t' read -r \
   group \
   medoid_accession \
   vp1_type \
   group_tree_tips \
+  full_genome_candidates \
+  medoid_genome_length \
   mean_distance
 
 do
 
-  # Skip TSV header.
+  # Skip header.
   if [[ "${group}" == "group" ]]
   then
     continue
   fi
 
-  # Skip an empty line.
+  # Skip empty lines.
   if [[ -z "${group}" ]]
   then
     continue
   fi
 
-  # Remove possible Windows carriage returns.
+  # Remove possible carriage returns.
   group="${group%$'\r'}"
   medoid_accession="${medoid_accession%$'\r'}"
   vp1_type="${vp1_type%$'\r'}"
 
-  echo
-  echo "Processing Group ${group}"
+  echo "Processing ${vp1_type}"
   echo "Medoid accession: ${medoid_accession}"
-  echo "VP1 type: ${vp1_type}"
+  echo "Genome length: ${medoid_genome_length}"
 
-
-  # Download the GenBank record.
   curl -L \
     "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=${medoid_accession}&rettype=gbwithparts&retmode=text" \
-    -o "data/references/medoid_group_${group}.gb"
+    -o "data/references/medoid_${group}.gb"
 
-
-  # Extract VP1 and assign a clear FASTA header.
   python scripts/extract_medoid_vp1.py \
-    --genbank "data/references/medoid_group_${group}.gb" \
+    --genbank "data/references/medoid_${group}.gb" \
     --accession "${medoid_accession}" \
     --group "${group}" \
     --vp1-type "${vp1_type}" \
-    --output "data/references/medoid_group_${group}_VP1.fasta"
+    --output "data/references/medoid_${group}_VP1.fasta"
 
-
-  # Append this VP1 sequence to the final multifasta.
-  cat "data/references/medoid_group_${group}_VP1.fasta" \
+  cat "data/references/medoid_${group}_VP1.fasta" \
     >> data/references/reference_multi.fasta
 
 
-  # Avoid sending NCBI requests too rapidly.
   sleep 1
 
 done < data/references/medoids.tsv
 
+echo
+echo "Selected medoids:"
+column -t -s $'\t' \
+  data/references/medoids.tsv
+echo
+echo "Final individual-GII VP1 multifasta headers:"
+grep "^>" \
+  data/references/reference_multi.fasta
+echo
+echo "Reference statistics:"
+seqkit stats \
+  data/references/reference_multi.fasta
+echo
+echo "Number of individual GII references:"
+grep -c "^>" \
+  data/references/reference_multi.fasta
 echo
 echo "Medoid workflow completed successfully."

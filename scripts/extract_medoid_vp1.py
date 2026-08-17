@@ -24,7 +24,6 @@ def feature_text(feature):
     """
     Combine useful GenBank feature qualifiers into one lowercase string.
     """
-
     values = []
 
     for key in (
