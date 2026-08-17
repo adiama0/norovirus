@@ -2,7 +2,6 @@
 
 set -euo pipefail
 
-
 # Group A: GII.4, GII.20
 # Group B: GII.3, GII.7, GII.8, GII.14
 # Group C: GII.6, GII.11, GII.18
@@ -16,23 +15,20 @@ mkdir -p data/competitive_mapping_results/group_bams
 
 
 # Define and index the 5-reference VP1 multifasta
-
 REFERENCE="data/references/reference_multi.fasta"
-
-if [[ ! -s "${REFERENCE}" ]]; then
-  echo "ERROR: Missing or empty reference: ${REFERENCE}" >&2
-  exit 1
-fi
-
-
 echo "Indexing multireference FASTA..."
 
 bwa-mem2 index "${REFERENCE}"
-
 samtools faidx "${REFERENCE}"
 
-# Create global output tables
+# Retreive reference names
+REF_A=$(grep -m1 '^>GROUP_A' "${REFERENCE}" | awk '{sub(/^>/,""); print $1}')
+REF_B=$(grep -m1 '^>GROUP_B' "${REFERENCE}" | awk '{sub(/^>/,""); print $1}')
+REF_C=$(grep -m1 '^>GROUP_C' "${REFERENCE}" | awk '{sub(/^>/,""); print $1}')
+REF_D=$(grep -m1 '^>GROUP_D' "${REFERENCE}" | awk '{sub(/^>/,""); print $1}')
+REF_E=$(grep -m1 '^>GROUP_E' "${REFERENCE}" | awk '{sub(/^>/,""); print $1}')
 
+# Create global output tables
 printf "sample\tGroup_A\tGroup_B\tGroup_C\tGroup_D\tGroup_E\tTotal_unique_fragments\n" \
   > data/competitive_mapping_results/competitive_mapping_counts.tsv
 
@@ -42,21 +38,19 @@ printf "sample\tGroup_A\tGroup_B\tGroup_C\tGroup_D\tGroup_E\n" \
 printf "sample\tInput_read_pairs\tUnique_VP1_fragments\tNot_uniquely_assigned\tAssigned_fraction\n" \
   > data/competitive_mapping_results/competitive_mapping_qc.tsv
 
-
-# Process samples 
-
+echo "Processing Samples"
 # 33 thru 50 newer samples
 for number in {33..50}
 do
 
-  sample="sequences/sample_${number}"
+  directory="data/sequences/sample_${number}"
+  sample="sample_${number}"
 
   echo
   echo "Processing ${sample}..."
 
-
-  R1="${sample}/${sample}_R1.fastq"
-  R2="${sample}/${sample}_R2.fastq"
+  R1="${directory}/${sample}_R1.fastq"
+  R2="${directory}/${sample}_R2.fastq"
 
   if [[ ! -s "${R1}" ]]; then
     echo "ERROR: Missing or empty R1 file: ${R1}" >&2
@@ -69,7 +63,7 @@ do
   fi
 
 
-  BAM="competitive_mapping_results/bams/${sample}.multireference.sorted.bam"
+  BAM="data/competitive_mapping_results/bams/${sample}.multireference.sorted.bam"
 
   # Competitively align each paired fragment against all five references at the same time.
   echo "Aligning ${sample}..."
@@ -84,7 +78,6 @@ do
         -@ 4 \
         -o "${BAM}"
 
-
   samtools index "${BAM}"
 
   samtools view \
@@ -92,62 +85,57 @@ do
     -f 2 \
     -F 2308 \
     "${BAM}" \
-    GROUP_A_REFERENCE \
-    > "competitive_mapping_results/group_bams/${sample}.group_A.unique.bam"
+    ${REF_A} \
+    > "data/competitive_mapping_results/group_bams/${sample}.group_A.unique.bam"
 
   samtools index \
-    "competitive_mapping_results/group_bams/${sample}.group_A.unique.bam"
-
+    "data/competitive_mapping_results/group_bams/${sample}.group_A.unique.bam"
 
   samtools view \
     -b \
     -f 2 \
     -F 2308 \
     "${BAM}" \
-    GROUP_B_REFERENCE \
-    > "competitive_mapping_results/group_bams/${sample}.group_B.unique.bam"
+    ${REF_B} \
+    > "data/competitive_mapping_results/group_bams/${sample}.group_B.unique.bam"
 
   samtools index \
-    "competitive_mapping_results/group_bams/${sample}.group_B.unique.bam"
-
+    "data/competitive_mapping_results/group_bams/${sample}.group_B.unique.bam"
 
   samtools view \
     -b \
     -f 2 \
     -F 2308 \
     "${BAM}" \
-    GROUP_C_REFERENCE \
-    > "competitive_mapping_results/group_bams/${sample}.group_C.unique.bam"
+    ${REF_C} \
+    > "data/competitive_mapping_results/group_bams/${sample}.group_C.unique.bam"
 
   samtools index \
-    "competitive_mapping_results/group_bams/${sample}.group_C.unique.bam"
-
+    "data/competitive_mapping_results/group_bams/${sample}.group_C.unique.bam"
 
   samtools view \
     -b \
     -f 2 \
     -F 2308 \
     "${BAM}" \
-    GROUP_D_REFERENCE \
-    > "competitive_mapping_results/group_bams/${sample}.group_D.unique.bam"
+    ${REF_D} \
+    > "data/competitive_mapping_results/group_bams/${sample}.group_D.unique.bam"
 
   samtools index \
-    "competitive_mapping_results/group_bams/${sample}.group_D.unique.bam"
-
+    "data/competitive_mapping_results/group_bams/${sample}.group_D.unique.bam"
 
   samtools view \
     -b \
     -f 2 \
     -F 2308 \
     "${BAM}" \
-    GROUP_E_REFERENCE \
-    > "competitive_mapping_results/group_bams/${sample}.group_E.unique.bam"
+    ${REF_E} \
+    > "data/competitive_mapping_results/group_bams/${sample}.group_E.unique.bam"
 
   samtools index \
-    "competitive_mapping_results/group_bams/${sample}.group_E.unique.bam"
+    "data/competitive_mapping_results/group_bams/${sample}.group_E.unique.bam"
 
   # Count uniquely assigned FRAGMENTS.
-
   count_A=$(
     samtools view \
       -c \
@@ -155,9 +143,8 @@ do
       -f 66 \
       -F 2308 \
       "${BAM}" \
-      GROUP_A_REFERENCE
+      ${REF_A}
   )
-
 
   count_B=$(
     samtools view \
@@ -166,9 +153,8 @@ do
       -f 66 \
       -F 2308 \
       "${BAM}" \
-      GROUP_B_REFERENCE
+      ${REF_B}
   )
-
 
   count_C=$(
     samtools view \
@@ -177,9 +163,8 @@ do
       -f 66 \
       -F 2308 \
       "${BAM}" \
-      GROUP_C_REFERENCE
+      ${REF_C}
   )
-
 
   count_D=$(
     samtools view \
@@ -188,9 +173,8 @@ do
       -f 66 \
       -F 2308 \
       "${BAM}" \
-      GROUP_D_REFERENCE
+      ${REF_D}
   )
-
 
   count_E=$(
     samtools view \
@@ -199,25 +183,20 @@ do
       -f 66 \
       -F 2308 \
       "${BAM}" \
-      GROUP_E_REFERENCE
+      ${REF_E}
   )
 
   # Sum all confidently assigned VP1 fragments.
-
   total_unique=$((count_A + count_B + count_C + count_D + count_E))
 
-
   # Count the number of original paired fragments.
-
   input_pairs=$(
     awk 'END {print NR / 4}' "${R1}"
   )
 
-
   not_unique=$((input_pairs - total_unique))
 
   # Normalize the 5 group counts among confidently assigned
-
   if [[ "${total_unique}" -gt 0 ]]
   then
 
@@ -264,7 +243,6 @@ do
     )
 
   else
-
     proportion_A="0.000000"
     proportion_B="0.000000"
     proportion_C="0.000000"
@@ -276,7 +254,6 @@ do
 
 
   # Add raw fragment counts to the global count table.
-
   printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\n" \
     "${sample}" \
     "${count_A}" \
@@ -285,11 +262,9 @@ do
     "${count_D}" \
     "${count_E}" \
     "${total_unique}" \
-    >> competitive_mapping_results/competitive_mapping_counts.tsv
-
+    >> data/competitive_mapping_results/competitive_mapping_counts.tsv
 
   # Add normalized proportions to the global table
-
   printf "%s\t%s\t%s\t%s\t%s\t%s\n" \
     "${sample}" \
     "${proportion_A}" \
@@ -297,19 +272,17 @@ do
     "${proportion_C}" \
     "${proportion_D}" \
     "${proportion_E}" \
-    >> competitive_mapping_results/competitive_mapping_proportions.tsv
+    >> data/competitive_mapping_results/competitive_mapping_proportions.tsv
 
 
   # Add overall mapping QC
-
   printf "%s\t%s\t%s\t%s\t%s\n" \
     "${sample}" \
     "${input_pairs}" \
     "${total_unique}" \
     "${not_unique}" \
     "${assigned_fraction}" \
-    >> competitive_mapping_results/competitive_mapping_qc.tsv
-
+    >> data/competitive_mapping_results/competitive_mapping_qc.tsv
 
   echo "Group A: ${proportion_A}"
   echo "Group B: ${proportion_B}"
@@ -319,5 +292,4 @@ do
 
 done
 
-echo
 echo "Competitive mapping completed."
