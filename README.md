@@ -8,7 +8,7 @@ bygul simulate-proportions \
   --readcnt 100000 \
   --error_rate 0.001
 ```
-This is an example for the generation of sample_44. Individual sample proportions can be found in 'data/sample_proportions.xlsx'
+This is an example for the generation of sample_43. Individual sample proportions can be found in 'data/sample_proportions.xlsx'
 
 run the following command to individuate medoid sequences:
 ```
