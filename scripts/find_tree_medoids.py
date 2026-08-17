@@ -2,13 +2,14 @@
 
 import argparse
 from pathlib import Path
-
 import pandas as pd
-from Bio import Phylo
+from Bio import Phylo, SeqIO
 
 
-def find_tree_medoid(tree, selected_names):
+def find_tree_medoid(tree, selected_names, candidate_names):
+
     selected_names = set(str(name) for name in selected_names)
+    candidate_names = set(str(name) for name in candidate_names)
 
     root = tree.root
     edge_length = {}
@@ -17,10 +18,12 @@ def find_tree_medoid(tree, selected_names):
     stack = [root]
 
     while stack:
+
         node = stack.pop()
         order.append(node)
 
         for child in node.clades:
+
             edge_length[child] = child.branch_length or 0.0
             stack.append(child)
 
@@ -30,14 +33,17 @@ def find_tree_medoid(tree, selected_names):
     for node in reversed(order):
 
         if node.is_terminal():
+
             selected_count[node] = int(node.name in selected_names)
             distance_below[node] = 0.0
 
         else:
+
             selected_count[node] = 0
             distance_below[node] = 0.0
 
             for child in node.clades:
+
                 selected_count[node] += selected_count[child]
 
                 distance_below[node] += (
@@ -47,11 +53,6 @@ def find_tree_medoid(tree, selected_names):
 
     number_selected = selected_count[root]
 
-    if number_selected == 0:
-        raise ValueError(
-            "None of the selected metadata samples were found in the tree."
-        )
-
     total_distance = {
         root: distance_below[root]
     }
@@ -59,6 +60,7 @@ def find_tree_medoid(tree, selected_names):
     for node in order:
 
         for child in node.clades:
+
             total_distance[child] = (
                 total_distance[node]
                 + (
@@ -75,44 +77,61 @@ def find_tree_medoid(tree, selected_names):
 
     candidates = [
         terminals[name]
-        for name in selected_names
+        for name in sorted(candidate_names)
         if name in terminals
+        and name in selected_names
     ]
 
     if not candidates:
+
         raise ValueError(
-            "No selected metadata samples matched terminal tips in the tree."
+            "No full-genome candidates matched terminal tips in the tree."
         )
 
     medoid = min(
         candidates,
-        key=lambda terminal: total_distance[terminal]
+        key=lambda terminal: (
+            total_distance[terminal],
+            terminal.name
+        )
     )
 
     if number_selected > 1:
+
         mean_distance = (
             total_distance[medoid]
             / (number_selected - 1)
         )
+
     else:
         mean_distance = 0.0
 
-    return medoid.name, number_selected, mean_distance
+    return (
+        medoid.name,
+        number_selected,
+        len(candidates),
+        mean_distance,
+    )
 
 
 def main():
+
     parser = argparse.ArgumentParser(
-        description="Find one VP1-tree medoid for each norovirus group."
+        description="Find one full-genome VP1-tree medoid for each norovirus type."
     )
 
     parser.add_argument("--tree", required=True)
     parser.add_argument("--metadata", required=True)
+    parser.add_argument("--sequences", required=True)
+    parser.add_argument("--min-genome-length", type=int, default=7000)
     parser.add_argument("--group-dir", required=True)
+
     parser.add_argument(
         "--groups",
         nargs="+",
-        default=["A", "B", "C", "D", "E"]
+        required=True
     )
+
     parser.add_argument("--output", required=True)
 
     args = parser.parse_args()
@@ -125,12 +144,24 @@ def main():
         dtype=str
     )
 
-    required_columns = {"name", "VP1_type"}
+    required_columns = {
+        "name",
+        "VP1_type"
+    }
 
     if not required_columns.issubset(all_metadata.columns):
+
         raise ValueError(
             "Filtered metadata must contain name and VP1_type columns."
         )
+
+    sequence_lengths = {
+        record.id: len(record.seq)
+        for record in SeqIO.parse(
+            args.sequences,
+            "fasta"
+        )
+    }
 
     results = []
 
@@ -154,9 +185,25 @@ def main():
             .tolist()
         )
 
-        medoid_name, number_selected, mean_distance = find_tree_medoid(
-            tree,
-            group_names
+        full_genome_names = [
+            name
+            for name in group_names
+            if sequence_lengths.get(name, 0) >= args.min_genome_length
+        ]
+
+        if not full_genome_names:
+
+            raise ValueError(
+                f"No sequences >= {args.min_genome_length} nt "
+                f"were found for {group}."
+            )
+
+        medoid_name, number_selected, number_candidates, mean_distance = (
+            find_tree_medoid(
+                tree,
+                group_names,
+                full_genome_names
+            )
         )
 
         medoid_row = all_metadata[
@@ -164,8 +211,11 @@ def main():
         ]
 
         if medoid_row.empty:
+
             vp1_type = "UNKNOWN"
+
         else:
+
             vp1_type = medoid_row.iloc[0]["VP1_type"]
 
         results.append(
@@ -174,6 +224,8 @@ def main():
                 "medoid_accession": medoid_name,
                 "VP1_type": vp1_type,
                 "group_tree_tips": number_selected,
+                "full_genome_candidates": number_candidates,
+                "medoid_genome_length": sequence_lengths[medoid_name],
                 "mean_patristic_distance": mean_distance,
             }
         )
