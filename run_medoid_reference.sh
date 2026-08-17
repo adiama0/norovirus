@@ -11,14 +11,11 @@ THREADS="${THREADS:-8}"
 # Group E: GII.13, GII.17, GII.21
 
 # Uncomment for full run
-# rm -rf tmp
-
-# rm -f data/nextstrain_sequences.fasta
-# rm -f data/nextstrain_sequences.fasta.zst
-# rm -f data/references/multireference.fasta
-# rm -f tree.nwk
+rm -rf tmp
+rm -rf data/references
 
 mkdir -p tmp
+mkdir -p data/references
 
 # Download all norovirus sequences from Nextstrain
 
@@ -26,11 +23,11 @@ echo "Downloading Nextstrain sequences..."
 
 wget --show-progress \
   https://data.nextstrain.org/files/workflows/norovirus/sequences.fasta.zst \
-  -O data/nextstrain_sequences.fasta.zst
+  -O tmp/nextstrain_sequences.fasta.zst
 
 zstd -d -f \
-  data/nextstrain_sequences.fasta.zst \
-  -o data/nextstrain_sequences.fasta
+  tmp/nextstrain_sequences.fasta.zst \
+  -o tmp/nextstrain_sequences.fasta
 
 
 # Extract VP1 metadata and VP1 phylogenetic tree
@@ -119,7 +116,7 @@ for group in A B C D E
 do
 
   python scripts/downsample_seqs.py \
-    data/sequences.fasta \
+    tmp/nextstrain_sequences.fasta \
     "tmp/metadata_group_${group}.tsv" \
     "tmp/sequences_group_${group}.fasta"
 
@@ -135,14 +132,14 @@ python scripts/find_tree_medoids.py \
   --metadata tmp/metadata_filtered.tsv \
   --group-dir tmp \
   --groups A B C D E \
-  --output tmp/medoids.tsv
+  --output data/references/medoids.tsv
 
 
 # Download each medoid and extract VP1
 
 echo "Retrieving and extracting medoid VP1 sequences..."
 
-> data/references/multireference.fasta
+> data/references/reference_multi.fasta
 
 
 while IFS=$'\t' read -r \
@@ -180,51 +177,27 @@ do
   # Download the GenBank record.
   curl -L \
     "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=${medoid_accession}&rettype=gbwithparts&retmode=text" \
-    -o "tmp/medoid_group_${group}.gb"
+    -o "data/references/medoid_group_${group}.gb"
 
 
   # Extract VP1 and assign a clear FASTA header.
   python scripts/extract_medoid_vp1.py \
-    --genbank "tmp/medoid_group_${group}.gb" \
+    --genbank "data/references/medoid_group_${group}.gb" \
     --accession "${medoid_accession}" \
     --group "${group}" \
     --vp1-type "${vp1_type}" \
-    --output "tmp/medoid_group_${group}_VP1.fasta"
+    --output "data/references/medoid_group_${group}_VP1.fasta"
 
 
   # Append this VP1 sequence to the final multifasta.
-  cat "tmp/medoid_group_${group}_VP1.fasta" \
-    >> data/references/multireference.fasta
+  cat "data/references/medoid_group_${group}_VP1.fasta" \
+    >> data/references/reference_multi.fasta
 
 
   # Avoid sending NCBI requests too rapidly.
   sleep 1
 
-done < tmp/medoids.tsv
-
-
-# Final checks
-
-echo
-echo "Selected medoids:"
-
-column -t -s $'\t' \
-  tmp/medoids.tsv
-
-
-echo
-echo "Final 5-reference VP1 multifasta:"
-
-grep "^>" \
-  data/references/multireference.fasta
-
-
-echo
-echo "Reference sequence statistics:"
-
-seqkit stats \
-  data/references/multireference.fasta
-
+done < data/references/medoids.tsv
 
 echo
 echo "Medoid workflow completed successfully."
