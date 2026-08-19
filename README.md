@@ -14,6 +14,7 @@ run the following command to individuate medoid sequences:
 ```
 run_medoid_reference.sh
 ```
+Necessary files needed to obtain medoid: norovirus_all_VP1.json (found on the nextstrain Norovirus page)
 
 run the following command to generate sample proportions:
 ```

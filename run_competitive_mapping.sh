@@ -72,7 +72,7 @@ do
   R2="${directory}/${sample}_R2.fastq"
   BAM="data/competitive_mapping_results/bams/${sample}.multireference.sorted.bam"
 
-  # Competitively align each paired fragment against all five references at the same time.
+  # Competitively align each paired fragment against references at the same time.
   echo "Aligning ${sample}..."
   bwa-mem2 mem \
     -t 8 \
