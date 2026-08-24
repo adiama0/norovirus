@@ -56,7 +56,7 @@ QC_FILE="data/competitive_mapping_results/competitive_mapping_qc.tsv"
 } > "${PROPORTIONS_FILE}"
 
 # QC header.
-printf "sample\tInput_read_pairs\tUnique_VP1_fragments\tNot_uniquely_assigned\tAssigned_fraction\n" \
+printf "sample\tinput_read_pairs\tunique_VP1_fragments\tnot_uniquely_assigned\tassigned_fraction\tmean_MAPQ\n" \
   > "${QC_FILE}"
 
 echo "Processing Samples"
@@ -122,6 +122,26 @@ do
     total_unique=$((total_unique + count))
   done
 
+  mean_mapq=$(
+    samtools view \
+      -f 66 \
+      -F 2308 \
+      "${BAM}" \
+    | awk '
+        {
+          sum += $5
+          n++
+        }
+        END {
+          if (n > 0) {
+            printf "%.2f", sum / n
+          } else {
+            printf "0.00"
+          }
+        }
+      '
+    )
+
   # count original paired fragments 
   input_pairs=$(
     awk 'END {print NR / 4}' "${R1}"
@@ -185,12 +205,13 @@ do
   } >> "${PROPORTIONS_FILE}"
 
   # Write QC
-  printf "%s\t%s\t%s\t%s\t%s\n" \
+  printf "%s\t%s\t%s\t%s\t%s\t%s\n" \
     "${sample}" \
     "${input_pairs}" \
     "${total_unique}" \
     "${not_unique}" \
     "${assigned_fraction}" \
+    "${mean_mapq}" \
     >> "${QC_FILE}"
   
   echo "Competitive mapping proportions:"
