@@ -1,0 +1,6 @@
+sample	kraken2_norovirus_percent	kraken2_clade_fragments	kraken2_direct_fragments	kraken2_total_minimizers	kraken2_distinct_minimizers	taxonomic_screen	final_detection
+WW_only_filtered	  0.02	2824	0	126215	335	CANDIDATE	SUPPORTED_GII_VP1
+WW_SMV_1_100	0.00	0	0	0	0	NO_EVIDENCE	NOT_SUPPORTED
+WW_SMV_1_100_filtered	  0.28	16463	0	300870	389	CANDIDATE	SUPPORTED_GII_VP1
+WW_SMV_1_10000_filtered	  0.02	2757	0	115636	401	CANDIDATE	SUPPORTED_GII_VP1
+WW_SMV_stock_filtered	  1.46	289600	0	4962675	312	CANDIDATE	SUPPORTED_GII_VP1
