@@ -2,43 +2,78 @@
 
 ## Overview
 
-This repository contains a workflow for estimating the relative abundance of norovirus GII VP1 types from mixed sequencing samples.
+This repository contains a workflow for detecting norovirus in mixed metagenomic sequencing samples and estimating the relative abundance of norovirus GII VP1 genotypes.
 
-The workflow:
+The workflow separates two questions:
 
-1. Obtains norovirus sequence data and VP1 metadata.
-2. Identifies one phylogenetic medoid reference for each individual GII VP1 type.
-3. Restricts final medoid reference selection to sufficiently complete genomes.
-4. Extracts VP1 from each selected medoid genome.
-5. Combines all VP1 medoids into a single multifasta reference.
-6. Competitively maps paired-end reads against all GII VP1 references simultaneously.
-7. Calculates VP1-type-specific fragment counts and proportions.
-8. Reports mapping QC metrics including assigned fraction and mean MAPQ.
+1. **Is there taxonomic evidence for Norovirus in the sample?**
+2. **If Norovirus is supported, which GII VP1 genotypes are present and in what relative proportions?**
 
-The workflow was validated using mock metagenomic samples generated with Bygul with known VP1 genotype proportions.
+The current pipeline uses Kraken2 as a broad metagenomic screen before competitive mapping against a curated multi-reference VP1 panel. The VP1 panel can contain more than one representative sequence for the same genotype when one medoid does not adequately represent the diversity observed during validation.
+
+The current analysis is:
+
+```text
+paired input reads
+        |
+        v
+validate R1/R2 and count reads
+        |
+        +---------------------------+
+        |                           |
+      FASTQ                       FASTA
+        |                           |
+        v                           |
+      FastQC                        |
+        |                           |
+        v                           |
+   Trimmomatic                      |
+        |                           |
+        +-------------+-------------+
+                      |
+                      v
+             Kraken2 taxonomic screen
+                      |
+              Norovirus evidence?
+                 /          \
+               no            yes
+               |              |
+               v              v
+      report no supported   BWA-MEM2 competitive
+      GII VP1 signal        mapping to VP1 panel
+                                  |
+                                  v
+                         reference-level QC
+                                  |
+                                  v
+                         collapse references
+                           by VP1 genotype
+                                  |
+                                  v
+                       abundance + breadth
+                              filtering
+                                  |
+                                  v
+                        filtered genotype
+                           proportions
+```
 
 ---
 
-# Workflow structure
+# Goals of the pipeline
 
-The main workflow consists of two scripts:
+Wastewater and other metagenomic samples contain reads from many organisms. Norovirus may represent only a small fraction of the total library, and more than one norovirus genotype can be present at the same time.
 
-```text
-run_medoid_reference.sh
-        |
-        v
-data/references/reference_multi.fasta
-        |
-        v
-run_competitive_mapping.sh
-        |
-        v
-data/competitive_mapping_results/
-```
+The pipeline was designed to address several problems:
 
-`run_medoid_reference.sh` creates the GII VP1 multifasta reference.
+- distinguish taxonomic evidence for Norovirus from genotype assignment;
+- reduce reference bias caused by representing an entire genotype with one sequence;
+- allow multiple GII genotypes to be quantified in the same sample;
+- avoid counting the same paired fragment twice;
+- use depth and breadth to distinguish broad VP1 support from localized cross-mapping;
+- report genotype proportions only after unsupported assignments are filtered.
 
-`run_competitive_mapping.sh` maps sequencing reads competitively against the multifasta and calculates VP1-type proportions.
+The final proportions describe the relative composition of the **supported GII VP1 mixture**. They are not the fraction of the complete wastewater metagenome and are not an absolute viral-load measurement.
 
 ---
 
@@ -48,417 +83,147 @@ data/competitive_mapping_results/
 norovirus/
 |
 ├── data/
-│   ├── norovirus_all_VP1.json
-│   │
 │   ├── references/
-│   │   ├── medoids.tsv
-│   │   ├── medoid_GII_*.gb
-│   │   ├── medoid_GII_*_VP1.fasta
 │   │   └── reference_multi.fasta
-│   │
+│   |
+│   ├── kraken2/
+│   │   └── Kraken2 database files
+│   |
 │   ├── sequences/
-│   │   ├── sample_33/
-│   │   ├── sample_34/
-│   │   ├── ...
-│   │   └── sample_50/
-│   │
-│   ├── sample_proportions.xlsx
-│   │
-│   └── competitive_mapping_results/
-│       ├── bams/
-│       ├── group_bams/
-│       ├── competitive_mapping_counts.tsv
-│       ├── competitive_mapping_proportions.tsv
-│       └── competitive_mapping_qc.tsv
+│   │   └── clinical/
+│   │       ├── SAMPLE_R1.fastq.gz
+│   │       ├── SAMPLE_R2.fastq.gz
+│   │       └── ...
+│   |
+│   └── results/
+│       ├── fastqc/
+│       │   └── *_fastqc.html
+│       |
+│       ├── trimmomatic/
+│       │   ├── *_R1.trimmed.paired.fastq.gz
+│       │   ├── *_R2.trimmed.paired.fastq.gz
+│       │   └── *.trimmomatic.log
+│       |
+│       ├── taxonomy/
+│       │   ├── *.kraken2.report.tsv
+│       │   └── norovirus_detection.tsv
+│       |
+│       └── competitive_mapping/
+│           ├── mapping_qc.tsv
+│           ├── mapping_reference_qc.tsv
+│           └── mapping_proportions_filtered.tsv
 │
 ├── scripts/
-│   ├── downsample_seqs.py
-│   ├── find_tree_medoids.py
-│   └── extract_medoid_vp1.py
+│   └── 
 │
-├── run_medoid_reference.sh
-└── run_competitive_mapping.sh
+├── env.yml
+├── run_competitive_mapping.sh
+└── README.md
 ```
+
+`run_competitive_mapping.sh` removes and recreates `data/results/` at the beginning of a complete run. Copy previous results elsewhere before rerunning if they need to be retained.
 
 ---
 
-# Software requirements
+# Software environment
 
-The workflow currently uses:
+Create the Conda environment with:
 
-- Bash
-- Python 3
-- Biopython
-- pandas
-- BarcodeForge
+```bash
+conda env create -f env.yml
+conda activate NV
+```
+
+The current competitive-mapping workflow directly uses:
+
 - BWA-MEM2
 - samtools
 - seqkit
-- wget
-- curl
-- zstd
-- Bygul
+- FastQC
+- Trimmomatic
+- Kraken2
 
----
+Additional packages in the project environment are used for reference construction, mock generation, and downstream analysis.
 
-# Step 1: Build the VP1 medoid reference
+Kraken2 requires both the Kraken2 software and a Kraken2 database. The default database path in the shell workflow is:
 
-Run:
+```text
+data/kraken2
+```
+
+A different database can be supplied with:
 
 ```bash
-bash run_medoid_reference.sh
+KRAKEN2_DB=/path/to/kraken2_database bash run_competitive_mapping.sh
 ```
 
-The final reference is:
+# Why use multi-reference competitive mapping?
+
+A genotype is not represented by one invariant nucleotide sequence. Strains belonging to the same genotype can differ enough that a single reference recruits some strains much better than others.
+
+Using only one representative can therefore cause reference bias:
 
 ```text
-data/references/reference_multi.fasta
+true strain close to reference
+    -> efficient mapping
+
+true strain distant from reference
+    -> fewer reads map
+    -> lower breadth
+    -> increased cross-mapping risk
 ```
 
----
+A multi-reference FASTA provides several plausible representatives for genotypes that require more sequence diversity.
 
-## Download Nextstrain sequences
+Competitive mapping means that all VP1 references are indexed together and every read is evaluated against the entire panel in the same BWA-MEM2 alignment.
 
-The workflow downloads the current norovirus sequence FASTA:
+This is preferable to mapping independently to each genotype because independent mapping could allow the same fragment to be counted against more than one genotype.
 
-```bash
-wget --show-progress \
-  https://data.nextstrain.org/files/workflows/norovirus/sequences.fasta.zst \
-  -O tmp/nextstrain_sequences.fasta.zst
-```
-
-The compressed file is decompressed to:
-
-```text
-tmp/nextstrain_sequences.fasta
-```
-
----
-
-## Extract VP1 metadata and tree
-
-BarcodeForge extracts the VP1 metadata and phylogenetic tree from:
-
-```text
-data/norovirus_all_VP1.json
-```
-
-The metadata are written to:
-
-```text
-tmp/metadata.tsv
-```
-
-The VP1 tree is written to:
-
-```text
-tmp/VP1_tree.nwk
-```
-
-The tree is not reconstructed during this workflow. It is extracted from the existing Auspice JSON.
-
----
-
-## Filter VP1 types
-
-Only clean GII VP1 labels matching:
-
-```text
-GII.[number]
-```
-
-are retained.
-
-For example:
-
-```text
-GII.1
-GII.2
-GII.3
-GII.4
-...
-```
-
-The filtered metadata are stored in:
-
-```text
-tmp/metadata_filtered.tsv
-```
-
----
-
-## Count samples per VP1 type
-
-The number of sequences assigned to each VP1 type can be checked with:
-
-```bash
-awk -F'\t' '
-NR > 1 {
-  count[$2]++
-}
-END {
-  for (type in count) {
-    print type, count[type]
-  }
-}
-' tmp/metadata_filtered.tsv \
-| sort -t. -k2,2n
-```
-
----
-
-# Medoid selection
-
-One medoid is selected independently for every VP1 type.
-
-For example:
-
-```text
-GII.1  -> one GII.1 medoid
-GII.2  -> one GII.2 medoid
-GII.3  -> one GII.3 medoid
-...
-```
-
-The medoid is the sequence minimizing the total patristic distance to all sequences of the same VP1 type in the VP1 phylogenetic tree.
-
-Mathematically:
-
-```text
-medoid = sequence with the smallest total tree distance
-         to every other sequence in that VP1 type
-```
-
-More formally:
-
-```text
-m = argmin sum d(i,j)
-```
-
-where `d(i,j)` is the patristic distance between two VP1 tree tips.
-
----
-
-## Full-genome candidate requirement
-
-All sequences assigned to a VP1 type contribute to determining the phylogenetic center.
-
-However, only genomes meeting the minimum genome-length requirement are allowed to become the final medoid reference.
-
-Current threshold:
-
-```text
-7000 nt
-```
-
-The relevant argument is:
-
-```bash
---min-genome-length 7000
-```
-
-This avoids selecting partial sequences that may not contain a complete VP1 region.
-
-Importantly:
-
-```text
-partial genomes
-    -> contribute to determining phylogenetic centrality
-
-full genomes >= 7000 nt
-    -> are eligible to become the final reference
-```
-
-The medoid is therefore the most central sufficiently complete genome, rather than simply the most central sequence of any length.
-
----
-
-# `find_tree_medoids.py` variables
-
-## `selected_names`
-
-All sequences belonging to a specific VP1 type.
-
-These sequences contribute to the patristic-distance calculation.
+After alignment, the workflow retains qualifying primary alignments and collapses all representatives belonging to the same genotype.
 
 Example:
 
 ```text
-all GII.13 tree tips
+GII.17 rep1 = 1000 fragments
+GII.17 rep2 =  400 fragments
+GII.17 rep3 =  100 fragments
+
+GII.17 total = 1500 fragments
 ```
 
 ---
 
-## `candidate_names`
+# Input data
 
-Sequences that are eligible to become the medoid.
+The current workflow uses a strict paired-end naming convention.
 
-Candidates must:
+FASTQ input:
 
-1. belong to the correct VP1 type;
-2. exist in the VP1 tree;
-3. meet the minimum genome-length requirement.
+```text
+SAMPLE_R1.fastq.gz
+SAMPLE_R2.fastq.gz
+```
+
+FASTA input:
+
+```text
+SAMPLE_R1.fasta
+SAMPLE_R2.fasta
+```
+
+Inputs are read from:
+
+```text
+data/sequences/clinical/
+```
+
+R1 and R2 must contain the same number of sequences.
+
+A sample cannot have both FASTQ and FASTA input files with the same sample name.
 
 ---
 
-## `sequence_lengths`
-
-Dictionary containing the length of each sequence in the downloaded Nextstrain FASTA.
-
-Example:
-
-```python
-{
-    "LC122751": 7547,
-    "AB809989": 2184
-}
-```
-
----
-
-## `number_selected`
-
-Number of sequences belonging to the VP1 type that were found in the VP1 tree.
-
----
-
-## `number_candidates`
-
-Number of sufficiently complete genomes eligible to become the medoid.
-
----
-
-## `mean_distance`
-
-Mean patristic distance between the selected medoid and the other sequences belonging to that VP1 type.
-
-A lower value indicates that the reference is closer, on average, to the other members of that VP1 type.
-
----
-
-# `medoids.tsv`
-
-Medoid selection results are written to:
-
-```text
-data/references/medoids.tsv
-```
-
-The table contains fields such as:
-
-```text
-group
-medoid_accession
-VP1_type
-group_tree_tips
-full_genome_candidates
-medoid_genome_length
-mean_patristic_distance
-```
-
-### `group`
-
-Filesystem-safe label for the VP1 type.
-
-Example:
-
-```text
-GII_13
-```
-
-corresponds to:
-
-```text
-GII.13
-```
-
-### `medoid_accession`
-
-Accession selected as the phylogenetic medoid reference.
-
-### `VP1_type`
-
-VP1 genotype associated with the medoid.
-
-### `group_tree_tips`
-
-Number of sequences used to define that genotype's phylogenetic distribution.
-
-### `full_genome_candidates`
-
-Number of sequences meeting the full-genome length requirement.
-
-### `medoid_genome_length`
-
-Length of the selected medoid genome.
-
-### `mean_patristic_distance`
-
-Mean VP1-tree distance between the selected medoid and the other sequences assigned to the VP1 type.
-
----
-
-# VP1 extraction
-
-The GenBank record for each selected medoid accession is downloaded from NCBI.
-
-The workflow first searches annotated CDS features for terms including:
-
-```text
-VP1
-ORF2
-major capsid
-capsid protein
-```
-
-If an annotated VP1 CDS is found, that sequence is extracted.
-
-If no usable VP1 annotation is present, the script searches for a complete forward-strand ORF within the expected VP1 size range:
-
-```text
-1500-1800 nt
-```
-
-VP1 sequences are checked for expected length and coding-frame consistency before being written to FASTA.
-
----
-
-# Final reference multifasta
-
-All individual VP1 medoids are concatenated into:
-
-```text
-data/references/reference_multi.fasta
-```
-
-Headers have the form:
-
-```text
->GROUP_GII_13|GII.13|ACCESSION
-```
-
-For example:
-
-```text
->GROUP_GII_13|GII.13|MW305678
-```
-
-The three fields represent:
-
-```text
-GROUP_GII_13
-    filesystem-safe genotype identifier
-
-GII.13
-    VP1 type
-
-MW305678
-    medoid accession
-```
-
----
-
-# Step 2: Competitive mapping
+# Running the workflow
 
 Run:
 
@@ -466,177 +231,208 @@ Run:
 bash run_competitive_mapping.sh
 ```
 
-The multifasta reference is:
+The main reference is:
 
-```bash
-REFERENCE="data/references/reference_multi.fasta"
+```text
+data/references/reference_multi.fasta
 ```
 
-The reference is indexed with:
+The script indexes the reference with BWA-MEM2 and samtools before processing samples.
+
+---
+
+# Raw-read QC
+
+## FASTQ input
+
+Raw FASTQ pairs are analyzed with FastQC before trimming.
+
+FastQC is used to inspect sequencing properties such as:
+
+- per-base quality;
+- sequence length;
+- GC distribution;
+- adapter content;
+- duplicated or overrepresented sequences.
+
+FastQC is a technical QC step. It does not determine whether Norovirus is present.
+
+The current streamlined workflow runs FastQC on the raw reads only and does not automatically rerun FastQC after Trimmomatic.
+
+If FastQC cannot process a sample, that sample is skipped while the workflow continues with the remaining samples.
+
+## FASTA input
+
+FASTA files do not contain Phred quality scores.
+
+FASTA samples therefore skip FastQC and Trimmomatic and proceed directly to taxonomic screening.
+
+---
+
+# Trimmomatic preprocessing
+
+FASTQ reads are trimmed before Kraken2 or BWA-MEM2 analysis.
+
+Current quality-trimming settings are:
+
+```text
+SLIDINGWINDOW:4:20
+MINLEN:50
+```
+
+`SLIDINGWINDOW:4:20` trims when the average quality in a four-base window drops below Q20.
+
+`MINLEN:50` removes reads shorter than 50 nucleotides after trimming.
+
+Only paired survivors are retained for downstream analysis. Unpaired Trimmomatic outputs are temporary and are deleted.
+
+Adapter trimming is optional. If an adapter FASTA is known, it can be supplied with:
 
 ```bash
-bwa-mem2 index "${REFERENCE}"
-samtools faidx "${REFERENCE}"
+TRIMMOMATIC_ADAPTERS=/path/to/adapters.fa \
+  bash run_competitive_mapping.sh
+```
+
+When supplied, the workflow adds:
+
+```text
+ILLUMINACLIP:<adapter file>:2:30:10
 ```
 
 ---
 
-# Reference variables
+# Kraken2 Norovirus screen
 
-## `REF_NAMES`
+After preprocessing, Kraken2 is used as a broad taxonomic screening step.
 
-Array containing the exact FASTA reference names.
-
-Example:
+The purpose is to separate:
 
 ```text
-GROUP_GII_1|GII.1|ACCESSION
-GROUP_GII_2|GII.2|ACCESSION
-GROUP_GII_3|GII.3|ACCESSION
+Is there taxonomic evidence for Norovirus?
 ```
 
-These exact strings are required by samtools.
+from:
+
+```text
+Which GII VP1 genotype best explains the reads?
+```
+
+The workflow currently uses:
+
+```text
+Norovirus taxid: 142786
+Kraken2 confidence: 0.10
+paired-end mode
+report minimizer data
+memory mapping
+```
+
+Kraken2 reports are written to:
+
+```text
+data/results/taxonomy/SAMPLE.kraken2.report.tsv
+```
+
+The workflow records:
+
+- percentage assigned to the Norovirus clade;
+- Norovirus clade fragments;
+- fragments assigned directly to the Norovirus genus;
+- total minimizers;
+- distinct minimizers.
+
+A sample is marked as a Kraken2 `CANDIDATE` when the Norovirus genus has both:
+
+```text
+clade fragments > 0
+```
+
+and:
+
+```text
+distinct minimizers > 0
+```
+
+These are current screening rules and are not a validated diagnostic limit of detection.
+
+If no Norovirus evidence is found, VP1 competitive mapping is skipped and zero genotype proportions are written for that sample.
 
 ---
 
-## `VP1_TYPES`
+# Important current Kraken2-to-BWA behavior
 
-Array containing the VP1 genotype associated with each reference.
+Kraken2 currently acts as a **gate**, not a read extractor.
 
-Example:
+If Kraken2 detects Norovirus evidence, the current shell script maps the complete set of processed paired reads against the VP1 panel.
 
-```text
-GII.1
-GII.2
-GII.3
-```
+It does not currently extract only Kraken2-classified Norovirus or Caliciviridae reads before BWA-MEM2.
 
-`REF_NAMES` and `VP1_TYPES` use the same array position.
-
-For example:
+Current behavior:
 
 ```text
-REF_NAMES[0] = GROUP_GII_1|GII.1|ACCESSION
-VP1_TYPES[0] = GII.1
+all processed reads
+        |
+        v
+Kraken2 screen
+        |
+        +-- no Norovirus evidence --> no VP1 mapping
+        |
+        +-- Norovirus evidence --> all processed reads go to VP1 mapping
 ```
+
+This implementation detail should be considered when interpreting very low-level competitive-mapping assignments.
 
 ---
 
-# Sample input variables
+# Competitive VP1 mapping
 
-Samples are currently processed from:
-
-```text
-sample_33
-```
-
-through:
+Samples that pass the Kraken2 screen are aligned against:
 
 ```text
-sample_50
+data/references/reference_multi.fasta
 ```
 
-For each sample:
+with BWA-MEM2.
 
-```bash
-directory="data/sequences/sample_${number}"
-sample="sample_${number}"
-```
+All reference sequences are present in the same BWA index, so they compete for each read during a single alignment.
 
-Read files are expected to be:
-
-```text
-data/sequences/sample_33/sample_33_R1.fastq
-data/sequences/sample_33/sample_33_R2.fastq
-```
-
-Variables:
-
-```bash
-R1="${directory}/${sample}_R1.fastq"
-R2="${directory}/${sample}_R2.fastq"
-```
+The BAM file is sorted and indexed with samtools, used for QC and genotype calculations, and then deleted to reduce disk usage.
 
 ---
 
-# Competitive alignment
+# Fragment counting and alignment filters
 
-Reads are aligned simultaneously against every GII VP1 medoid:
+The workflow counts one R1 record from each qualifying paired fragment.
 
-```bash
-bwa-mem2 mem \
-  -t 8 \
-  -R "@RG\tID:${sample}\tSM:${sample}\tPL:ILLUMINA" \
-  "${REFERENCE}" \
-  "${R1}" \
-  "${R2}" \
-| samtools sort \
-    -@ 4 \
-    -o "${BAM}"
-```
-
-Because every VP1 reference is in the same multifasta, BWA evaluates the references competitively.
-
-The sorted BAM is stored at:
+The main requirements are:
 
 ```text
-data/competitive_mapping_results/bams/
-```
-
----
-
-# Counting fragments
-
-For each VP1 reference:
-
-```bash
-samtools view \
-  -c \
-  -q 20 \
-  -f 66 \
-  -F 2308 \
-  "${BAM}" \
-  "${ref_name}"
-```
-
-is used to count qualifying fragments.
-
----
-
-## `-q 20`
-
-Require:
-
-```text
+properly paired
+R1 / first read in pair
 MAPQ >= 20
+not unmapped
+not secondary
+not supplementary
 ```
 
-Alignments below this mapping-confidence threshold are excluded from genotype abundance calculations.
+The count command uses the equivalent of:
 
----
+```text
+-f 66
+-q 20
+-F 2308
+```
 
-## `-f 66`
-
-Require SAM flags:
+`-f 66` requires:
 
 ```text
 64 = first read in pair
 2  = properly paired
 ```
 
-Therefore:
+Counting only R1 means one physical paired fragment contributes one count rather than two.
 
-```text
-66 = first read in pair + properly paired
-```
-
-Only R1 is counted so that a paired fragment is counted once rather than twice.
-
----
-
-## `-F 2308`
-
-Exclude:
+`-F 2308` excludes:
 
 ```text
 4    unmapped
@@ -644,223 +440,376 @@ Exclude:
 2048 supplementary alignment
 ```
 
-This prevents secondary and supplementary records from being counted as additional fragments.
+This prevents secondary or supplementary records from being counted as additional fragments.
 
 ---
 
-# Count variables
+# Reference-level coverage QC
 
-## `COUNTS`
+Coverage is calculated independently for every reference in the multi-reference panel.
 
-Array containing the number of qualifying fragments assigned to each VP1 type.
+The workflow reports:
 
----
+- fragment count;
+- mean depth;
+- breadth at >=1x;
+- breadth at >=5x.
 
-## `count`
+`breadth_1x` is the fraction of reference positions covered by at least one read.
 
-Number of qualifying fragments assigned to the current VP1 medoid.
+`breadth_5x` is the fraction covered at depth >=5.
 
----
+References belonging to the same genotype are **not** concatenated for breadth calculation. Concatenating several alternative representatives would artificially penalize a genotype simply because more representatives were added.
 
-## `total_unique`
-
-Sum of qualifying fragments across all VP1 references.
-
-Conceptually:
-
-```text
-total_unique =
-GII.1 count +
-GII.2 count +
-GII.3 count +
-...
-```
-
-The name is retained from earlier versions of the workflow.
-
-Here, "unique" refers to fragments passing the competitive mapping and MAPQ filters. It does not refer to PCR duplicate removal.
-
-Mock reads are simulated without PCR amplification, so duplicate marking is not performed.
-
-Duplicate handling should be evaluated separately before applying the workflow to real sequencing libraries.
+For genotype filtering, the highest `breadth_5x` observed among that genotype's representatives is used.
 
 ---
 
-# Proportion calculation
+# Genotype proportions and filtering
 
-For each genotype:
+After reference-level counts are obtained, counts from all representatives belonging to the same genotype are summed.
 
-```text
-proportion =
-genotype fragment count /
-total qualifying VP1 fragments
-```
-
-For example:
+Raw within-GII genotype proportions are calculated as:
 
 ```text
-GII.4 count = 9000
-GII.2 count = 1000
-total = 10000
+genotype qualifying fragments
+--------------------------------
+total qualifying GII VP1 fragments
 ```
 
-gives:
+The current filter requires:
 
 ```text
-GII.4 = 0.90
-GII.2 = 0.10
+raw genotype proportion >= 0.001
+AND
+best representative breadth_5x >= 0.50
 ```
 
----
-
-# QC variables
-
-## `input_pairs`
-
-Number of original paired fragments in the input FASTQ.
-
-Calculated from R1:
-
-```bash
-awk 'END {print NR / 4}' "${R1}"
-```
-
-FASTQ contains four lines per read.
-
----
-
-## `not_unique`
-
-Calculated as:
+Equivalent thresholds:
 
 ```text
-input_pairs - total_unique
+minimum raw proportion = 0.1%
+minimum breadth at >=5x = 50%
 ```
 
-This value includes all input fragments that did not contribute to the final genotype counts.
+The abundance filter reduces very small competitive-mapping assignments.
 
-It can include:
+The breadth filter helps reject cases where many reads pile up over only a small conserved region.
 
-- reads outside VP1;
-- unmapped reads;
-- improperly paired reads;
-- secondary/supplementary records;
-- reads below MAPQ 20.
+After filtering, passing genotype counts are renormalized so that the supported genotype proportions sum to approximately 1.0.
 
-Therefore, `Not_uniquely_assigned` should not be interpreted exclusively as reads that were ambiguous between two VP1 genotypes.
-
----
-
-## `assigned_fraction`
-
-Calculated as:
-
-```text
-total_unique / input_pairs
-```
-
-This measures the fraction of all simulated read pairs that contribute to the final VP1 abundance calculation.
-
-Because the mock reads are generated from whole norovirus genomes while the reference contains only VP1, an assigned fraction near the fraction of the genome occupied by VP1 is expected for well-represented whole-genome mocks.
-
----
-
-## `Mean_MAPQ`
-
-Mean mapping quality among primary, properly paired R1 alignments before the MAPQ 20 abundance cutoff.
-
-This provides a sample-level measure of alignment confidence.
-
-MAPQ is not the same as the simulated sequencing base-error rate.
-
-`--error_rate 0.001` controls sequencing errors introduced into the mock reads.
-
-MAPQ describes BWA's confidence in the placement of a read relative to competing references.
-
-A read generated with a base-error rate corresponding approximately to Q30 can still have:
-
-```text
-MAPQ 60
-```
-
-if its reference placement is unambiguous.
-
-Conversely, an error-free read can have:
-
-```text
-MAPQ 0
-```
-
-if multiple references provide equally plausible alignments.
+These thresholds are method-development parameters and should not be interpreted as a validated clinical detection threshold.
 
 ---
 
 # Output files
 
-## Competitive mapping counts
+## FastQC
 
 ```text
-data/competitive_mapping_results/competitive_mapping_counts.tsv
+data/results/fastqc/
 ```
 
-Example structure:
+The workflow retains FastQC HTML reports and removes the FastQC ZIP files at the end of the run.
+
+## Trimmomatic
 
 ```text
-sample  GII.1  GII.2  GII.3  ...  Total_unique_fragments
+data/results/trimmomatic/
 ```
 
-Values are raw qualifying fragment counts.
-
----
-
-## Competitive mapping proportions
+Contains:
 
 ```text
-data/competitive_mapping_results/competitive_mapping_proportions.tsv
+SAMPLE_R1.trimmed.paired.fastq.gz
+SAMPLE_R2.trimmed.paired.fastq.gz
+SAMPLE.trimmomatic.log
 ```
 
-Example:
+## `norovirus_detection.tsv`
 
 ```text
-sample  GII.1  GII.2  GII.3 ...
-```
-
-Values are normalized proportions among all qualifying VP1 fragments.
-
-Each sample should approximately sum to:
-
-```text
-1.0
-```
-
-when at least one VP1 fragment is assigned.
-
----
-
-## Competitive mapping QC
-
-```text
-data/competitive_mapping_results/competitive_mapping_qc.tsv
+data/results/taxonomy/norovirus_detection.tsv
 ```
 
 Columns:
 
 ```text
 sample
-Input_read_pairs
-Unique_VP1_fragments
-Not_uniquely_assigned
-Assigned_fraction
-Mean_MAPQ
+kraken2_norovirus_percent
+kraken2_clade_fragments
+kraken2_direct_fragments
+kraken2_total_minimizers
+kraken2_distinct_minimizers
+taxonomic_screen
+final_detection
+```
+
+`taxonomic_screen` records whether Kraken2 found Norovirus evidence.
+
+`final_detection` is:
+
+```text
+SUPPORTED_GII_VP1
+```
+
+when at least one genotype passes the mapping filters, otherwise:
+
+```text
+NOT_SUPPORTED
+```
+
+## `mapping_qc.tsv`
+
+```text
+data/results/competitive_mapping/mapping_qc.tsv
+```
+
+Columns:
+
+```text
+sample
+raw_read_pairs
+mapping_read_pairs
+retained_pair_fraction
+unique_VP1_fragments
+assigned_fraction
+mean_MAPQ
+mean_depth
+breadth
+```
+
+### `raw_read_pairs`
+
+Number of paired fragments in the original input.
+
+### `mapping_read_pairs`
+
+Number of paired fragments entering Kraken2 and, when supported, BWA-MEM2 after preprocessing.
+
+### `retained_pair_fraction`
+
+```text
+mapping_read_pairs / raw_read_pairs
+```
+
+### `unique_VP1_fragments`
+
+Total number of qualifying primary paired-fragment assignments across the GII VP1 panel.
+
+The term `unique` does not mean PCR duplicate removal.
+
+### `assigned_fraction`
+
+```text
+unique_VP1_fragments / mapping_read_pairs
+```
+
+This measures how much of the processed sequencing library contributed to the VP1 competitive-mapping counts. It is not a probability that the sample is positive.
+
+### `mean_MAPQ`
+
+Mean BWA mapping quality among primary properly paired R1 alignments before the MAPQ abundance cutoff.
+
+MAPQ measures alignment ambiguity within the supplied reference space. It is not a probability that a biological genotype call is correct.
+
+### `mean_depth` and `breadth`
+
+These are panel-level metrics across the multi-reference FASTA.
+
+A pure genotype sample can therefore have excellent coverage over its true reference while still having relatively low panel-wide breadth. Genotype interpretation should rely primarily on the individual-reference metrics in `mapping_reference_qc.tsv`.
+
+## `mapping_reference_qc.tsv`
+
+```text
+data/results/competitive_mapping/mapping_reference_qc.tsv
+```
+
+Columns:
+
+```text
+sample
+VP1_type
+reference
+fragments
+mean_depth
+breadth_1x
+breadth_5x
+```
+
+This file is used to inspect the behavior of every reference separately and is particularly important when multiple representatives are included for the same genotype.
+
+## `mapping_proportions_filtered.tsv`
+
+```text
+data/results/competitive_mapping/mapping_proportions_filtered.tsv
+```
+
+Contains one column per VP1 genotype.
+
+Only genotypes that pass the abundance and breadth criteria contribute to the final renormalized proportions.
+
+The current streamlined workflow does not generate separate raw-proportion, mapping-count, genotype-QC, or bootstrap-confidence tables.
+
+---
+
+# Reference panel construction
+
+## Nextstrain VP1 dataset
+
+Reference selection began with the Nextstrain norovirus VP1 dataset.
+
+The Nextstrain sequence collection can be downloaded with:
+
+```bash
+wget --show-progress \
+  https://data.nextstrain.org/files/workflows/norovirus/sequences.fasta.zst \
+  -O tmp/nextstrain_sequences.fasta.zst
+```
+
+VP1 metadata and the VP1 phylogenetic tree are obtained from the Nextstrain/Auspice data used by the reference-building workflow.
+
+The sequences are separated by VP1 genotype/lineage so that each lineage is treated independently during reference selection.
+
+Examples include:
+
+```text
+GII.1
+GII.2
+GII.3
+GII.4
+GII.6
+GII.17
 ```
 
 ---
 
-# Bygul mock samples
+## Medoid selection
 
-Mock samples were generated using Bygul.
+A medoid is selected for each VP1 lineage.
 
-General command:
+The medoid is the sequence with the smallest total patristic distance to the other sequences in that lineage. In other words, it is a phylogenetically central representative rather than an arbitrary accession.
+
+Conceptually:
+
+```text
+all sequences in one VP1 lineage
+            |
+            v
+calculate phylogenetic distances
+            |
+            v
+identify the most central eligible genome
+```
+
+Formally:
+
+```text
+medoid = argmin_i sum_j d(i,j)
+```
+
+where `d(i,j)` is the patristic distance between two VP1 tree tips.
+
+---
+
+## Completeness filtering
+
+Reference candidates are filtered for completeness before a final genome is retained as the lineage representative.
+
+The reference-selection workflow has used a minimum genome-length requirement of:
+
+```text
+7000 nt
+```
+
+This reduces the chance of choosing a partial genome that does not contain a complete VP1 region.
+
+Sequences within the lineage can still contribute to the phylogenetic distribution used to define the medoid, while sufficiently complete genomes are used as final reference candidates.
+
+---
+
+## VP1 extraction from annotated GenBank records
+
+After a medoid accession is selected, the corresponding annotated GenBank record is downloaded.
+
+The VP1 region is retained according to the annotation in the `.gb` file. The extracted VP1 coding region is written to an individual FASTA and later combined with the other lineage representatives.
+
+Using VP1 specifically is important because this pipeline is intended to estimate **VP1 capsid genotypes**, not whole-genome strain proportions.
+
+---
+
+## Adding second and third representatives
+
+The original reference strategy used one medoid per VP1 lineage.
+
+During validation against samples with known genotype composition, some single-medoid references did not produce good coverage or did not recover the known lineage proportion accurately. In those cases, one medoid was not sufficient to represent the within-lineage sequence diversity relevant to the sample.
+
+A second representative was therefore added for that genotype. If coverage or known-proportion recovery was still inadequate, a third representative was added.
+
+For example:
+
+```text
+GII.17
+├── rep1
+├── rep2
+└── rep3
+```
+
+The additional sequences remain separate references during BWA-MEM2 alignment, but their qualifying counts are collapsed back into one biological genotype.
+
+This approach attempts to reduce reference bias without reporting each representative as a different genotype.
+
+---
+
+## Final multi-reference FASTA
+
+All selected VP1 references are combined into:
+
+```text
+data/references/reference_multi.fasta
+```
+
+Headers use the format:
+
+```text
+>GROUP_VP1_type|VP1.type|accession|rep#
+```
+
+For example:
+
+```text
+>GROUP_GII_17|GII.17|PX470709|rep2
+```
+
+The fields represent:
+
+```text
+GROUP_GII_17   filesystem-safe group identifier
+GII.17         VP1 genotype
+PX470709       accession
+rep2           representative number
+```
+
+`run_competitive_mapping.sh` uses the second pipe-delimited field to group multiple references back into one genotype.
+
+---
+
+# Validation with Bygul mock samples
+
+The effectiveness of the workflow was tested using synthetic mock samples generated with Bygul.
+
+Mock data are useful because the source genomes and expected proportions are known before the analysis is run. The observed competitive-mapping proportions can therefore be compared directly against a defined truth set.
+
+These tests were used to evaluate:
+
+- whether the correct genotype was recovered;
+- whether observed proportions matched the known composition;
+- whether one medoid adequately represented the lineage;
+- whether adding a second or third representative improved coverage and proportion recovery;
+- how reference choice influenced cross-mapping, depth, and breadth;
+- how low-abundance genotypes behaved in mixtures.
+
+An example Bygul command used for a two-genotype mixture is:
 
 ```bash
 bygul simulate-proportions \
@@ -872,98 +821,83 @@ bygul simulate-proportions \
   --error_rate 0.001
 ```
 
----
-
-## Bygul parameters
-
-### Input FASTAs
-
-```text
-source_fastas/GII2_fasta,source_fastas/GII17_fasta
-```
-
-Comma-separated genomes used to construct the mock.
-
----
-
-### `--proportions`
-
-Example:
-
-```bash
---proportions 0.50,0.50
-```
-
-Defines the expected abundance of each input genome.
-
-The values correspond positionally to the input FASTAs.
+The source FASTAs are supplied in the same positional order as the proportions.
 
 For example:
 
 ```text
-GII2_fasta,GII17_fasta
+source_fastas/GII2_fasta,source_fastas/GII17_fasta
 0.50,0.50
 ```
 
-means:
+represents an expected mixture of:
 
 ```text
 GII.2  = 50%
 GII.17 = 50%
 ```
 
----
+`--simulation_mode metagenomics` creates a mixed metagenomic-style simulation from the supplied source genomes.
 
-### `--outdir`
+`--readcnt 100000` sets the requested simulation size.
 
-Output directory for the simulated sample.
+`--error_rate 0.001` introduces a 0.1% simulated nucleotide error rate.
 
-Example:
+Other mock compositions can be generated by changing the source FASTAs and `--proportions` values while retaining the same general command structure.
 
-```bash
---outdir sample_43
-```
+The mock results were also used to identify cases where the original medoid alone did not sufficiently represent the lineage, motivating the addition of second or third reference representatives.
 
 ---
 
-### `--simulation_mode metagenomics`
+# Interpreting the workflow
 
-Simulates a mixed metagenomic sample from the supplied input genomes.
-
----
-
-### `--readcnt 100000`
-
-Generate:
+The workflow combines several forms of evidence:
 
 ```text
-100,000 read pairs
+technical read QC
+        +
+metagenomic taxonomic evidence
+        +
+competitive VP1 mapping
+        +
+mapping quality
+        +
+reference-specific depth
+        +
+reference-specific breadth
+        =
+supported GII genotype composition
 ```
 
-for the sample.
+No single metric should be interpreted as definitive by itself.
+
+Important interpretation points include:
+
+- a low VP1 `assigned_fraction` can still be compatible with real wastewater Norovirus because viral reads may represent a small fraction of the total metagenome;
+- high fragment counts with narrow breadth can reflect localized cross-mapping;
+- broad coverage with extremely low abundance can still represent low-level background or cross-mapping;
+- MAPQ measures alignment confidence relative to the supplied references, not taxonomic certainty;
+- Kraken2 results depend on the database and database version used;
+- filtered GII proportions are relative mixture proportions, not absolute viral load.
 
 ---
 
-### `--error_rate 0.001`
+# Current limitations
 
-Simulated nucleotide sequencing error rate.
+The current workflow is a method-development pipeline rather than a validated diagnostic assay.
 
-```text
-0.001 = 0.1% error probability
-```
+Current limitations include:
+- Kraken2 detection depends on database content and version.
+- The abundance and breadth thresholds are empirical development settings.
+- Relative genotype proportions are not equivalent to absolute virus concentration in the original sample.
+- The workflow targets VP1 capsid genotypes and does not perform full polymerase/capsid dual typing.
+- The current workflow does not calculate bootstrap confidence or formal confidence intervals.
 
-This is conceptually different from BWA MAPQ.
-
----
-
-# Expected mock compositions
-
-Expected mock proportions are stored in:
-
-```text
-data/sample_proportions.xlsx
-```
+Continued validation should use known-positive samples, environmental controls, dilution series, and synthetic mixtures with known truth.
 
 ---
 
-Developed by: Aron Asher Diamond, M.S, APHL Fellow for the New Hampshire Public Health Laboratory. 
+## Developed by
+
+Aron Asher Diamond, M.S.  
+APHL Fellow, New Hampshire Public Health Laboratory
