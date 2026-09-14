@@ -4,18 +4,25 @@ unused/*
 # Ignore temporary results
 tmp/*
 
+# Ignore Kraken2 database
+data/kraken2/*
+
 # Ignore input sequence files
 data/sequences/*
 !data/sequences/.gitkeep
 
-# Ignore competitive mapping output
-data/competitive_mapping_results/*
-!data/competitive_mapping_results/.gitkeep
+# Ignore results output
+data/results/fastqc/*
+data/results/taxonomy/*
+data/results/trimmomatic/*
+# allow norovirus detection results and folder appearing in repo
+!data/results/taxonomy/norovirus_detection.tsv
+!data/results/fastqc/.gitkeep
+!data/results/trimmomatic/.gitkeep
 
 # Ignore reference indexes and individual fastas
 data/references/*
 # allow reference fasta and medoid tsv
-!data/references/medoid.tsv
 !data/references/reference_multi.fasta
 
 
