@@ -210,14 +210,15 @@ workflow NorovirusGIICompetitiveMapping {
       CompetitiveMapping.breadth,
       NegativeMappingOutputs.breadth
     ])
-
-    meta {
+  }
+    
+meta {
     author: "Aron A. Diamond"
     email: "aron.diamond.a@gmail.com"
     description: "Sample-level workflow for detecting Norovirus in paired-end sequencing reads using Kraken2 and estimating Norovirus GII VP1 genotype proportions through competitive BWA-MEM2 mapping. The workflow performs FastQC, Trimmomatic read trimming, Kraken2 taxonomic screening, conditional competitive VP1 mapping, reference-level coverage assessment, genotype filtering, and reporting of genotype proportions and mapping quality metrics."
     }
-  }
 }
+
 
 
 task FastQC {
