@@ -47,7 +47,8 @@ mkdir -p \
   "${TRIMMOMATIC_DIR}" \
   "${TAXONOMY_DIR}" \
   "${COMPETITIVE_DIR}" \
-  "${TMP_DIR}"
+  "${TMP_DIR}" \
+  "${BAMS_DIR}"
 
 # check required programs
 for program in bwa-mem2 samtools seqkit fastqc trimmomatic kraken2

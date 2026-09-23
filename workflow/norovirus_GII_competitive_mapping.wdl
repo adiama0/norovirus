@@ -519,6 +519,8 @@ task CompetitiveMapping {
       echo "ERROR: no VP1 references were found." >&2
       exit 1
     fi
+    
+    mkdir -p bams
 
     bwa-mem2 mem \
       -t ~{cpu} \
