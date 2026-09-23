@@ -1,0 +1,9 @@
+version: 1.0
+
+workflows:
+  - name: Norovirus_GII_Competitive_Mapping
+    subclass: WDL
+    primaryDescriptorPath: /workflows/norovirus_competitive_mapping.wdl
+    testParameterFiles:
+      - /data/inputs/empty.json
+    topic: Detects Norovirus and estimates GII VP1 genotype proportions from paired-end reads using Kraken2 and competitive BWA-MEM2 mapping.
