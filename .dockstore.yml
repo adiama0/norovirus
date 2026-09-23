@@ -4,7 +4,7 @@ workflows:
   - name: Norovirus_GII_Competitive_Mapping
     subclass: WDL
     publish: true
-    primaryDescriptorPath: /workflows/norovirus_GII_competitive_mapping.wdl
+    primaryDescriptorPath: /workflow/norovirus_GII_competitive_mapping.wdl
     testParameterFiles:
       - /data/inputs/empty.json
     authors:
