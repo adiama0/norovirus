@@ -4,7 +4,7 @@ set -uo pipefail
 
 # configuration
 REFERENCE="data/references/reference_multi.fasta"
-SEQUENCE_DIR="data/sequences/clinical/"
+SEQUENCE_DIR="data/sequences/mock1/"
 KRAKEN2_DB="${KRAKEN2_DB:-data/kraken2}"
 
 THREADS=8
@@ -19,7 +19,7 @@ MIN_BREADTH_5X=0.50
 
 # Kraken2 used for metagenomic screen before VP1 genotyping.
 # Confidence is a Kraken2 k-mer support threshold, not a probability.
-KRAKEN2_CONFIDENCE="${KRAKEN2_CONFIDENCE:-0.10}"
+KRAKEN2_CONFIDENCE="${KRAKEN2_CONFIDENCE:-0.001}"
 NOROVIRUS_TAXID=142786
 
 TRIMMOMATIC_ADAPTERS="${TRIMMOMATIC_ADAPTERS:-}"
@@ -32,6 +32,7 @@ FASTQC_DIR="${RESULTS_DIR}/fastqc"
 TRIMMOMATIC_DIR="${RESULTS_DIR}/trimmomatic"
 TAXONOMY_DIR="${RESULTS_DIR}/taxonomy"
 COMPETITIVE_DIR="${RESULTS_DIR}/competitive_mapping"
+BAMS_DIR="${RESULTS_DIR}/bams"
 TMP_DIR="${RESULTS_DIR}/tmp"
 
 DETECTION_FILE="${TAXONOMY_DIR}/norovirus_detection.tsv"
@@ -485,7 +486,7 @@ map_sample() {
   local bwa_log="${TMP_DIR}/${sample}.bwa.log"
   local sort_log="${TMP_DIR}/${sample}.samtools_sort.log"
 
-  BAM="${TMP_DIR}/${sample}.multireference.sorted.bam"
+  BAM="${BAMS_DIR}/${sample}.multireference.sorted.bam"
 
   echo "Mapping ${sample} against the VP1 reference panel..."
 
@@ -515,6 +516,7 @@ map_sample() {
 
   return 0
 }
+
 
 # calculate reference QC and final genotype proportions
 calculate_mapping_metrics() {
@@ -859,7 +861,6 @@ do
 
   calculate_mapping_metrics "${sample}"
 
-  rm -f "${BAM}" "${BAM}.bai"
 done
 
 # finish

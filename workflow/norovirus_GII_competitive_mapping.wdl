@@ -172,6 +172,9 @@ workflow NorovirusGIICompetitiveMapping {
       NegativeMappingOutputs.mapping_proportions_filtered_tsv
     ])
 
+    File? aligned_bam = CompetitiveMapping.aligned_bam
+    File? aligned_bam_index = CompetitiveMapping.aligned_bam_index
+
     String genotype_proportions = select_first([
       CompetitiveMapping.genotype_proportions,
       NegativeMappingOutputs.genotype_proportions
@@ -526,10 +529,10 @@ task CompetitiveMapping {
       2> "~{samplename}.bwa.log" \
       | samtools sort \
           -@ ~{sort_cpu} \
-          -o "~{samplename}.multireference.sorted.bam" \
+          -o "bams/~{samplename}.multireference.sorted.bam" \
           2> "~{samplename}.samtools_sort.log"
 
-    BAM="~{samplename}.multireference.sorted.bam"
+    BAM="bams/~{samplename}.multireference.sorted.bam"
     samtools index "${BAM}"
 
     printf "sample\tVP1_type\treference\tfragments\tmean_depth\tbreadth_1x\tbreadth_5x\n" \
@@ -802,10 +805,12 @@ task CompetitiveMapping {
     printf "%s\n" "${mean_depth}" > mean_depth.txt
     printf "%s\n" "${breadth}" > breadth.txt
 
-    rm -f "${BAM}" "${BAM}.bai"
   >>>
 
   output {
+    File aligned_bam = "bams/" + samplename + ".multireference.sorted.bam"
+    File aligned_bam_index = "bams/" + samplename + ".multireference.sorted.bam.bai"
+
     File norovirus_detection_tsv = "norovirus_detection.tsv"
     File mapping_qc_tsv = "mapping_qc.tsv"
     File mapping_reference_qc_tsv = "mapping_reference_qc.tsv"
