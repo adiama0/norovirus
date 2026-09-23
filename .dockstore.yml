@@ -3,7 +3,12 @@ version: 1.2
 workflows:
   - name: Norovirus_GII_Competitive_Mapping
     subclass: WDL
+    publish: true
     primaryDescriptorPath: /workflows/norovirus_competitive_mapping.wdl
     testParameterFiles:
       - /data/inputs/empty.json
+    authors:
+      - name: "Aron A. Diamond"
+        role: "Bioinformatics analyst"
+        affiliation: "NH PHL"
     topic: Detects Norovirus and estimates GII VP1 genotype proportions from paired-end reads using Kraken2 and competitive BWA-MEM2 mapping.
