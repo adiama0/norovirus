@@ -561,7 +561,7 @@ task CompetitiveMapping {
         samtools view \
           -c \
           -q ~{min_mapq} \
-          -f 66 \
+          -f 64 \
           -F 2308 \
           "${BAM}" \
           "${GROUP_REFS[@]}"
@@ -576,7 +576,7 @@ task CompetitiveMapping {
           samtools view \
             -c \
             -q ~{min_mapq} \
-            -f 66 \
+            -f 64 \
             -F 2308 \
             "${BAM}" \
             "${ref_name}"
