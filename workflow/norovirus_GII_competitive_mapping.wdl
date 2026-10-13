@@ -270,7 +270,7 @@ task CompetitiveMapping {
         PROPORTIONS+=("${proportion}")
       done
 
-      assigned_fraction=$(awk -v assigned="${total_unique}" -v total="~${total_unique}") \
+      assigned_fraction=$(awk -v assigned="${total_unique}" -v total="${mapping_input_pairs}" \
         'BEGIN {printf "%.6f", assigned / total}')
     else
       for vp1_type in "${VP1_TYPES[@]}"; do
