@@ -32,3 +32,5 @@ data/references/*
 # Python cache files
 __pycache__/
 *.py[cod]
+_LAST
+*_NorovirusGIICompetitiveMapping/
